@@ -2,17 +2,18 @@
 using System.Collections;
 using System.Collections.Generic;
 
-namespace JUST.NewJobNotifier.Classes
+namespace JUST.JobPerformanceNotifier.Classes
 {
-
     public class Employee
     {
+        private static readonly log4net.ILog log = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+
         public Employee()
         {
             EmployeeId = string.Empty;
             Name = string.Empty;
             EmailAddress = string.Empty;
-            NewJobs = new List<JobInformation>();
+            JobPerformanceMessage = new List<String>();
         }
 
         public Employee(string employeeId, string name, string emailAddress)
@@ -20,60 +21,19 @@ namespace JUST.NewJobNotifier.Classes
             EmployeeId = employeeId;
             Name = name;
             EmailAddress = emailAddress;
-            NewJobs = new List<JobInformation>();
+            JobPerformanceMessage = new List<String>();
         }
 
-        public void AddJobToNotify(string job, string jobDescription, string cusNum, string customerName)
+        public void AddMessageToNotify(string message)
         {
-            NewJobs.Add(new JobInformation() {JobNumber = job, JobName = jobDescription, CustomerNumber = cusNum, CustomerName = customerName});
+            log.Info("Adding " + message + ": to " + Name);
+            JobPerformanceMessage.Add(message);
         }
 
         public string EmployeeId { get; set; }
         public string Name { get; set; }
         public string EmailAddress { get; set; } 
-        public List<JobInformation> NewJobs { get; }
-    }
-    /*
-    public class NewJob
-    {
-        public NewJob()
-        {
-            JobNumber = string.Empty;
-            JobDescription = string.Empty;
-            CustomerNumber = string.Empty;
-            CustomerName = string.Empty;
-        }
-
-        public string JobNumber { get; set; }
-        public string JobDescription { get; set; }
-        public string CustomerNumber { get; set; }
-        public string CustomerName { get; set; }
-    }
-    */
-
-    public class PurchaseOrderItem
-    {
-        public PurchaseOrderItem()
-        {
-            ItemNumber = string.Empty;
-            Description = string.Empty;
-            Quantity = string.Empty;
-            UnitPrice = string.Empty;
-        }
-
-        public PurchaseOrderItem(string itemNumber, string description, string quantity = "", string unitPrice = "")
-        {
-            ItemNumber = itemNumber;
-            Description = description;
-            Quantity = quantity;
-            UnitPrice = unitPrice;
-        }
-
-        public string ItemNumber { get; set; }
-        public string Description { get; set; }
-        public string Quantity { get; set; }
-        public string UnitPrice { get; set; }
-        public long Received { get; set; }
+        public List<String> JobPerformanceMessage { get; }
     }
 
     public class JobInformation
@@ -85,7 +45,6 @@ namespace JUST.NewJobNotifier.Classes
             JobName = string.Empty;
             CustomerNumber = string.Empty;
             CustomerName = string.Empty;
-            PurchaseOrderItems = new List<PurchaseOrderItem>();
         }
 
         public JobInformation(string projectManagerName, string jobNumber, string jobName, string customerNumber)
@@ -94,7 +53,6 @@ namespace JUST.NewJobNotifier.Classes
             JobNumber = jobNumber;
             JobName = jobName;
             CustomerNumber = customerNumber;
-            PurchaseOrderItems = new List<PurchaseOrderItem>();
         }
 
         public string ProjectManagerName { get; set; }
@@ -102,6 +60,26 @@ namespace JUST.NewJobNotifier.Classes
         public string JobName { get; set; }
         public string CustomerNumber { get; set; }
         public string CustomerName { get; set; }
-        public IList<PurchaseOrderItem> PurchaseOrderItems { get; set; }
+    }
+
+    public class JobDetail
+    {
+        public JobDetail()
+        {
+            Who = String.Empty;
+            Type = null;
+            Hours = null;
+        }
+
+        public JobDetail(string who, long type, decimal hours) 
+        {
+            Who = who;
+            Type = type;
+            Hours = hours;
+        }
+
+        public string Who { get; set; }
+        public long? Type { get; set; }
+        public decimal? Hours { get; set; }
     }
 }

@@ -8,9 +8,9 @@ using System.Linq;
 using System.Net;
 using System.Net.Mail;
 using System.Text;
-using JUST.NewJobNotifier.Classes;
+using JUST.JobPerformanceNotifier.Classes;
 
-namespace JUST.NewJobNotifier
+namespace JUST.JobPerformanceNotifier
 {
     class MainClass
     {
@@ -30,28 +30,46 @@ namespace JUST.NewJobNotifier
         private static string[] MonitorEmailAddresses;
         private static ArrayList ValidModes = new ArrayList() { debug, live, monitor };
 
-        private static string EmailSubject = "New Jobs created";
-        private static string MessageBodyFormat = @"
-    <body style = ""margin-left: 20px; margin-right:20px"" >
-        <hr/>
-        <h2> New Jobs Created</h2>
+        private static string EmailSubject = "Weekly Jobs Performance Report: {0}";
+        private static string MessageBodyHeader = @"
+<body style = ""margin-left: 20px; margin-right:20px"" >";
+        private static string MessageBodyFormat = @"<hr/>
+        <h2> Job {0} Performance Summary</h2>
         <hr/>
 
         <table style = ""width:80%; text-align: left"" border=""1"" cellpadding=""10"" cellspacing=""0"">
             <tr style = ""background-color: cyan"" >
-                <th>Customer</th>
-                <th>Customer Name</th>
-                <th>Job Number</th>
-                <th>Job Description</th>
+                <th>Technician</th>
+                <th>This Weeks Hours</th>
+                <th>Hour Type</th>
+                <th>Actual Total Job Hours</th>
+                <th>Estimated Total Hours</th>
+                <th>Remaining</th>
             </tr>";
 
-        private static string messageBodyTableItem = @"<tr>
+        private static string MessageBodyTableItem = @"<tr>
                 <td>{0}</td>
                 <td>{1}</td>
                 <td>{2}</td>
                 <td>{3}</td>
+                <td>{4}</td>
+                <td>{5}</td>
             </tr>";
-        private static string messageBodyTail = @"</table></body>";
+        private static string MessageBodyTail = @"</table>
+       <table style = ""width:25%; text-align: left"" cellpadding=""10"" cellspacing=""0"">
+            <tr>
+            <th>Actual Total Job Hours</th>
+            <td>{0}</td>
+            </tr>
+            <th>Estimated Total Hours</th>
+            <td>{1}</td>
+            </tr>
+            <th>Remaining</th>
+            <td>{2}</td>
+            </tr>
+       </table> 
+       <hr>";
+        private static string EndMessageBody = "</body>";
 
         static void Main(string[] args)
         {
@@ -173,7 +191,8 @@ namespace JUST.NewJobNotifier
                 //customer
                 // user_1 = primary contact
                 // user_2 = secondary contact
-                var JobsQuery = "select distinct jobnum from prledgerjc where checkdate = {d'" + checkDate + "'} and jobnum is not null and (jobnum like 'C%' or jobnum like 'P%')";
+//                var JobsQuery = "select distinct prledgerjc.jobnum, customer.user_1 from prledgerjc inner join jcjob on prledgerjc.jobnum = jcjob.jobnum  inner join customer on jcjob.cusnum = customer.cusnum where checkdate = {d'" + checkDate + "'} and prledgerjc.jobnum is not null and (prledgerjc.jobnum like 'C%' or prledgerjc.jobnum like 'P%') and prledgerjc.jobnum = 'CAC18081'";
+                var JobsQuery = "select distinct prledgerjc.jobnum, customer.user_1 from prledgerjc inner join jcjob on prledgerjc.jobnum = jcjob.jobnum  inner join customer on jcjob.cusnum = customer.cusnum where checkdate = {d'" + checkDate + "'} and prledgerjc.jobnum is not null and (prledgerjc.jobnum like 'C%' or prledgerjc.jobnum like 'P%')";
 
                 OdbcConnectionStringBuilder just = new OdbcConnectionStringBuilder();
                 just.Driver = "ComputerEase";
@@ -191,39 +210,51 @@ namespace JUST.NewJobNotifier
                 {
                     var EmployeeEmailAddresses = GetEmployees(cn);
                     var jobNumColumn = reader.GetOrdinal("jobnum");
+                    var primaryContactColumn = reader.GetOrdinal("user_1");
                     var executiveNewJobNotifications = new List<JobInformation>();
-
 
                     while (reader.Read())
                     {
                         var jobNumber = reader.GetString(jobNumColumn);
-                        log.Info("----------------- Found Job Number " + jobNumber + " -------------------");
+                        var primaryContact = reader.GetString(primaryContactColumn);
+                        log.Info("\r\n----------------- Found Job Number " + jobNumber + " for contact " + primaryContact + ": " + GetEmployeeInformation(EmployeeEmailAddresses, primaryContact).EmailAddress + " -------------------");
                         var totalActualHoursForJob = GetTotalActualHoursForJob(cn, jobNumber);
                         var totalEstimatedHoursForJob = GetTotalEstimatedHoursForJob(cn, jobNumber);
-                        var x = GetHoursEnteredDuringPayPeriod(cn, jobNumber, runDate);
+                        var x = GetHoursEnteredDuringPayPeriod(cn, jobNumber, runDate, totalActualHoursForJob, totalEstimatedHoursForJob);
+//                        log.Info(x);
+//                        log.Info("    totalActualHoursForJob: " + totalActualHoursForJob.ToString());
+//                        log.Info("    totalEstimatedHoursForJob: " + totalEstimatedHoursForJob.ToString());
 
-                        log.Info("    totalActualHoursForJob: " + totalActualHoursForJob.ToString());
-                        log.Info("    totalEstimatedHoursForJob: " + totalEstimatedHoursForJob.ToString());
+
+                        var message = string.Format(MessageBodyFormat, jobNumber) + x;
+                        var emailSubject = string.Format(EmailSubject, checkDate);
+
+                        var emp = GetEmployeeInformation(EmployeeEmailAddresses, primaryContact);
+                        emp.AddMessageToNotify(message);
+
+//                        sendEmail(GetEmployeeInformation(EmployeeEmailAddresses, primaryContact).EmailAddress, emailSubject, message);
 
                         if ((Mode == monitor) || (Mode == debug))
                         {
 //                            executiveNewJobNotifications.Add(new JobInformation() {JobNumber = jobNumber, JobName = jobName, CustomerNumber = customerNumber, CustomerName = customerName});
                         }
                     }
-                    /*
+
                     foreach (var emp in EmployeeEmailAddresses)
                     {
-                        if (emp.NewJobs.Count > 0)
+                        if (emp.JobPerformanceMessage.Count > 0)
                         {
-                            log.Info(" emp: " + emp.Name + ", " + emp.EmailAddress + ", newJobs: " + emp.NewJobs.Count());
-                            var message = MessageBodyFormat;
-                            foreach (var job in emp.NewJobs)
+                            log.Info(" emp: " + emp.Name + ", " + emp.EmailAddress + ", Jobs: " + emp.JobPerformanceMessage.Count());
+                            var r = MessageBodyHeader;
+                            foreach (var jobMessage in emp.JobPerformanceMessage)
                             {
-                                message += string.Format(messageBodyTableItem, job.CustomerNumber, job.CustomerName, job.JobNumber, job.JobName);
+                                log.Info("JobMessage: " + jobMessage);
+                                r += jobMessage;
                             }
 
-                            message += messageBodyTail;
-
+                            r += EndMessageBody;
+                            log.Info("complete message: " + r);
+/*
                             if ((Mode == live) || (Mode == monitor))
                             {
                                 if (sendEmail(emp.EmailAddress, EmailSubject, message))
@@ -242,9 +273,10 @@ namespace JUST.NewJobNotifier
                             {
                                 log.Info(" email would have been sent to " + emp.EmailAddress + ", \r\n" + message);
                             }
+                            */
                         }
                     }
-
+                    /*
                     log.Info(" ExecutiveNewJobNotifications: " + executiveNewJobNotifications.Count());
                     if (((Mode == monitor) || (Mode == debug)) && (executiveNewJobNotifications.Count() > 0))
                     {
@@ -276,21 +308,7 @@ namespace JUST.NewJobNotifier
                 {
                     log.Error("[ProcessNewJobsData] Reader Error: " + x.Message);
                 }
-/*
-                foreach (var jobNum in notifiedlist)
-                {
-                    try
-                    {
-                        var updateCommand = string.Format("update jcjob set \"user_10\" = 1 where jcjob.jobnum = '{0}'", jobNum);
-                        cmd = new OdbcCommand(updateCommand, cn);
-                        cmd.ExecuteNonQuery();
-                    }
-                    catch (Exception x)
-                    {
-                        log.Error(String.Format("[ProcessNewJobsData] Error updating Job Number {0} to be Notified: {1}", jobNum, x.Message));
-                    }
-                }
-*/
+
                 reader.Close();
                 cn.Close();
             }
@@ -344,24 +362,10 @@ namespace JUST.NewJobNotifier
             return new Employee();
         }
 
-        private static string FormatEmailBody(string receivedOnDate, string purchaseOrderNumber, string receivedBy, string bin, string buyerName, string vendor, JobInformation job, string notes)
-        {
-            var purchaseOrderItemTable = string.Empty;
-            foreach (PurchaseOrderItem poItem in job.PurchaseOrderItems)
-            {
-                purchaseOrderItemTable += string.Format(messageBodyTableItem, poItem.ItemNumber, poItem.Description, poItem.Quantity);
-            }
-
-            var emailBody = String.Format(MessageBodyFormat, purchaseOrderNumber, receivedBy, receivedOnDate, bin, job.JobNumber, job.JobName, job.CustomerName, vendor, buyerName, notes) + purchaseOrderItemTable + messageBodyTail;
-
-            return emailBody;
-        }
-
         private static bool sendEmail(string toEmailAddress, string subject, string emailBody)
         {
-            return false;
-
             bool result = true;
+
             if (toEmailAddress.Length == 0)
             {
                 log.Error("  [sendEmail] No toEmailAddress to send message to");
@@ -369,13 +373,15 @@ namespace JUST.NewJobNotifier
             }
 
             log.Info("  [sendEmail] Sending Email to: " + toEmailAddress);
+            log.Info("  [sendEmail] EmailSubject: " + subject);
             log.Info("  [sendEmail] EmailMessage: " + emailBody);
 
+            return result;
             try
             {
                 using (MailMessage mail = new MailMessage())
                 {
-                    mail.From = new MailAddress(FromEmailAddress, "New Job Notification");
+                    mail.From = new MailAddress(FromEmailAddress, subject);
                     mail.To.Add(toEmailAddress);
                     mail.Subject = subject;
                     mail.Body = emailBody;
@@ -435,7 +441,7 @@ namespace JUST.NewJobNotifier
             return estimatedJobHours;
         }
 
-        private static long GetHoursEnteredDuringPayPeriod(OdbcConnection cn, string jobNumber, DateTime checkDate)
+        private static string GetHoursEnteredDuringPayPeriod(OdbcConnection cn, string jobNumber, DateTime checkDate, long totalActualHours, long totalEstimatedHours)
         {
             long offset = 0;
 
@@ -463,8 +469,11 @@ namespace JUST.NewJobNotifier
 
             var jobQuery = "Select who, date, hours, type from jcdetail where jobnum = '"+ jobNumber + "' and date > {d'" + formattedPeriodStartDate + "'} and date < {d'" + formattedPeriodEndDate + "'} order by who, date asc";
             var buyerCmd = new OdbcCommand(jobQuery, cn);
+            var hoursForJobThisPayPeriod = new List<JobDetail>();
 
             OdbcDataReader hoursReader = buyerCmd.ExecuteReader();
+
+            string message = string.Format(MessageBodyFormat, jobNumber);
 
             try
             {
@@ -480,8 +489,9 @@ namespace JUST.NewJobNotifier
                         var who = hoursReader.GetString(whoColumn);
                         var date = hoursReader.GetDateTime(dateColumn);
                         var type = hoursReader.GetInt32(typeColumn);
-                        log.Info("  " + who + ": " + hours.ToString() + " type " + type.ToString() + " hours on " + date.ToShortDateString());
-                   }
+
+                        hoursForJobThisPayPeriod.Add(new JobDetail(who, type, hours));
+                    }
                 }
             }
             catch (Exception ex)
@@ -489,12 +499,45 @@ namespace JUST.NewJobNotifier
                 log.Error("GetHoursEnteredDuringPayPeriod error: " + ex.Message);
             }
 
+            var employeeSummary =
+                from h in hoursForJobThisPayPeriod
+                group h by new { h.Who, h.Type } into g
+                select new { g.Key.Who, g.Key.Type, TotalHours = g.Sum(h => h.Hours) };
 
+            foreach(var x in employeeSummary)
+            {
+                message += String.Format(MessageBodyTableItem, x.Who, x.TotalHours, FormatHoursType(x.Type), string.Empty, string.Empty, string.Empty);
+            }
+
+            var totalJobHours = employeeSummary.Sum(h => h.TotalHours);
+
+            if (totalJobHours > 0)
+            {
+                message += String.Format(MessageBodyTableItem, "Total", string.Empty, totalJobHours.ToString(), string.Empty, totalActualHours.ToString(), totalEstimatedHours.ToString(), string.Empty);
+            }
+
+            message += string.Format(MessageBodyTail, totalActualHours.ToString(), totalEstimatedHours.ToString(), (totalEstimatedHours - totalActualHours).ToString() );
             hoursReader.Close();
 
-            return 0;
+            return message;
         }
 
+        private static string FormatHoursType(long? HoursType)
+        {
+            var result = string.Empty;
+
+            if (HoursType.HasValue)
+            {
+                switch (HoursType)
+                {
+                    case 1: result = "REG"; break;
+                    case 2: result = "OT"; break;
+                    default: result = "DBL"; break;
+                }
+            }
+
+            return result;
+        }
 
 
         private static List<Employee> GetEmployees(OdbcConnection cn)
