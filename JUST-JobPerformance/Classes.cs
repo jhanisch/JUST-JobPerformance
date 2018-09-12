@@ -26,7 +26,6 @@ namespace JUST.JobPerformanceNotifier.Classes
 
         public void AddMessageToNotify(string message)
         {
-            log.Info("Adding " + message + ": to " + Name);
             JobPerformanceMessage.Add(message);
         }
 

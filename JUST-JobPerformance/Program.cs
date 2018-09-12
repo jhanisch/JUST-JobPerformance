@@ -34,41 +34,33 @@ namespace JUST.JobPerformanceNotifier
         private static string MessageBodyHeader = @"
 <body style = ""margin-left: 20px; margin-right:20px"" >";
         private static string MessageBodyFormat = @"<hr/>
-        <h2> Job {0} Performance Summary</h2>
-        <hr/>
+        <h2> Performance Summary for Job {0} - {1}</h2>
+        <p>
+        <strong>Primary Contact:</strong> {2}<br/>
+        <strong>Customer:</strong> {3} - {4}<br/>
+        <strong>Check Date:</strong> {5}<br/>
+        </p>
 
         <table style = ""width:80%; text-align: left"" border=""1"" cellpadding=""10"" cellspacing=""0"">
             <tr style = ""background-color: cyan"" >
                 <th>Technician</th>
                 <th>This Weeks Hours</th>
                 <th>Hour Type</th>
-                <th>Actual Total Job Hours</th>
-                <th>Estimated Total Hours</th>
-                <th>Remaining</th>
             </tr>";
 
         private static string MessageBodyTableItem = @"<tr>
                 <td>{0}</td>
                 <td>{1}</td>
                 <td>{2}</td>
-                <td>{3}</td>
-                <td>{4}</td>
-                <td>{5}</td>
             </tr>";
         private static string MessageBodyTail = @"</table>
-       <table style = ""width:25%; text-align: left"" cellpadding=""10"" cellspacing=""0"">
-            <tr>
-            <th>Actual Total Job Hours</th>
-            <td>{0}</td>
-            </tr>
-            <th>Estimated Total Hours</th>
-            <td>{1}</td>
-            </tr>
-            <th>Remaining</th>
-            <td>{2}</td>
-            </tr>
-       </table> 
-       <hr>";
+        <br>
+        <p>
+            <strong>Actual Total Job Hours:</strong> {0}<br/>
+            <strong>Estimated Total Hours:</strong> {1}<br/>
+            <strong>Remaining:</strong> {2}<br/>
+        </p>
+        <br>";
         private static string EndMessageBody = "</body>";
 
         static void Main(string[] args)
@@ -170,10 +162,10 @@ namespace JUST.JobPerformanceNotifier
                 OdbcConnection cn;
                 OdbcCommand cmd;
                 var notifiedlist = new ArrayList();
-                //var runDate = DateTime.Today.AddDays(1);
-                var runDate = new DateTime(2018, 06, 6);
+                var runDate = DateTime.Today; 
+                runDate = runDate.AddDays(runDate.DayOfWeek == DayOfWeek.Monday ? 2 : 1);
+                //runDate = new DateTime(2018, 06, 20);
                 var checkDate = String.Format("{0:yyyy-MM-dd}", runDate);
-                //checkDate = "2018-05-31";
                 log.Info("checkDate: " + checkDate);
 
                 //jcjob
@@ -192,7 +184,7 @@ namespace JUST.JobPerformanceNotifier
                 // user_1 = primary contact
                 // user_2 = secondary contact
 //                var JobsQuery = "select distinct prledgerjc.jobnum, customer.user_1 from prledgerjc inner join jcjob on prledgerjc.jobnum = jcjob.jobnum  inner join customer on jcjob.cusnum = customer.cusnum where checkdate = {d'" + checkDate + "'} and prledgerjc.jobnum is not null and (prledgerjc.jobnum like 'C%' or prledgerjc.jobnum like 'P%') and prledgerjc.jobnum = 'CAC18081'";
-                var JobsQuery = "select distinct prledgerjc.jobnum, customer.user_1 from prledgerjc inner join jcjob on prledgerjc.jobnum = jcjob.jobnum  inner join customer on jcjob.cusnum = customer.cusnum where checkdate = {d'" + checkDate + "'} and prledgerjc.jobnum is not null and (prledgerjc.jobnum like 'C%' or prledgerjc.jobnum like 'P%')";
+                var JobsQuery = "select distinct prledgerjc.jobnum, jcjob.user_2 as primaryContact, jcjob.name as jobName, customer.cusnum as customerNumber, customer.name as customerName from prledgerjc inner join jcjob on prledgerjc.jobnum = jcjob.jobnum  inner join customer on jcjob.cusnum = customer.cusnum where checkdate = {d'" + checkDate + "'} and prledgerjc.jobnum is not null and (prledgerjc.jobnum like 'C%' or prledgerjc.jobnum like 'P%')";
 
                 OdbcConnectionStringBuilder just = new OdbcConnectionStringBuilder();
                 just.Driver = "ComputerEase";
@@ -210,99 +202,72 @@ namespace JUST.JobPerformanceNotifier
                 {
                     var EmployeeEmailAddresses = GetEmployees(cn);
                     var jobNumColumn = reader.GetOrdinal("jobnum");
-                    var primaryContactColumn = reader.GetOrdinal("user_1");
-                    var executiveNewJobNotifications = new List<JobInformation>();
+                    var jobNameColumn = reader.GetOrdinal("jobName");
+                    var customerNumberColumn = reader.GetOrdinal("customerNumber");
+                    var customerNameColumn = reader.GetOrdinal("customerName");
+                    var primaryContactColumn = reader.GetOrdinal("primaryContact");
+                    var executiveNewJobNotifications = new List<String>();
 
                     while (reader.Read())
                     {
                         var jobNumber = reader.GetString(jobNumColumn);
+                        var jobName = reader.GetString(jobNameColumn);
                         var primaryContact = reader.GetString(primaryContactColumn);
+                        var customerNumber = reader.GetString(customerNumberColumn);
+                        var customerName = reader.GetString(customerNameColumn);
                         log.Info("\r\n----------------- Found Job Number " + jobNumber + " for contact " + primaryContact + ": " + GetEmployeeInformation(EmployeeEmailAddresses, primaryContact).EmailAddress + " -------------------");
                         var totalActualHoursForJob = GetTotalActualHoursForJob(cn, jobNumber);
                         var totalEstimatedHoursForJob = GetTotalEstimatedHoursForJob(cn, jobNumber);
                         var x = GetHoursEnteredDuringPayPeriod(cn, jobNumber, runDate, totalActualHoursForJob, totalEstimatedHoursForJob);
-//                        log.Info(x);
-//                        log.Info("    totalActualHoursForJob: " + totalActualHoursForJob.ToString());
-//                        log.Info("    totalEstimatedHoursForJob: " + totalEstimatedHoursForJob.ToString());
-
-
-                        var message = string.Format(MessageBodyFormat, jobNumber) + x;
-                        var emailSubject = string.Format(EmailSubject, checkDate);
+                        log.Info("    totalActualHoursForJob: " + totalActualHoursForJob.ToString());
+                        log.Info("    totalEstimatedHoursForJob: " + totalEstimatedHoursForJob.ToString());
 
                         var emp = GetEmployeeInformation(EmployeeEmailAddresses, primaryContact);
+                        var message = string.Format(MessageBodyFormat, jobNumber, jobName, emp.Name, customerNumber, customerName, checkDate) + x;
                         emp.AddMessageToNotify(message);
-
-//                        sendEmail(GetEmployeeInformation(EmployeeEmailAddresses, primaryContact).EmailAddress, emailSubject, message);
 
                         if ((Mode == monitor) || (Mode == debug))
                         {
-//                            executiveNewJobNotifications.Add(new JobInformation() {JobNumber = jobNumber, JobName = jobName, CustomerNumber = customerNumber, CustomerName = customerName});
+                            executiveNewJobNotifications.Add(message);
                         }
                     }
 
-                    foreach (var emp in EmployeeEmailAddresses)
+                    if ((Mode == live) || (Mode == monitor))
                     {
-                        if (emp.JobPerformanceMessage.Count > 0)
+                        foreach (var emp in EmployeeEmailAddresses)
                         {
-                            log.Info(" emp: " + emp.Name + ", " + emp.EmailAddress + ", Jobs: " + emp.JobPerformanceMessage.Count());
-                            var r = MessageBodyHeader;
-                            foreach (var jobMessage in emp.JobPerformanceMessage)
+                            if (emp.JobPerformanceMessage.Count > 0)
                             {
-                                log.Info("JobMessage: " + jobMessage);
-                                r += jobMessage;
-                            }
-
-                            r += EndMessageBody;
-                            log.Info("complete message: " + r);
-/*
-                            if ((Mode == live) || (Mode == monitor))
-                            {
-                                if (sendEmail(emp.EmailAddress, EmailSubject, message))
+                                var r = MessageBodyHeader;
+                                foreach (var jobMessage in emp.JobPerformanceMessage)
                                 {
-                                    foreach (var job in emp.NewJobs)
-                                    {
-                                        if (!notifiedlist.Contains(job.JobNumber))
-                                        {
-                                            notifiedlist.Add(job.JobNumber);
-                                        }
-                                    }
+                                    r += jobMessage;
                                 }
-                                log.Info(message);
+
+                                r += EndMessageBody;
+
+                                var emailSubject = string.Format(EmailSubject, checkDate);
+                                sendEmail(emp.EmailAddress, emailSubject, r);
                             }
-                            else
-                            {
-                                log.Info(" email would have been sent to " + emp.EmailAddress + ", \r\n" + message);
-                            }
-                            */
                         }
                     }
-                    /*
-                    log.Info(" ExecutiveNewJobNotifications: " + executiveNewJobNotifications.Count());
+
                     if (((Mode == monitor) || (Mode == debug)) && (executiveNewJobNotifications.Count() > 0))
                     {
-                        var excutiveMessage = MessageBodyFormat;
-                        foreach (var job in executiveNewJobNotifications)
+                        var executiveMessage = MessageBodyHeader;
+                        foreach (var jobMessage in executiveNewJobNotifications)
                         {
-                            excutiveMessage += string.Format(messageBodyTableItem, job.CustomerNumber, job.CustomerName, job.JobNumber, job.JobName);
+                            executiveMessage += jobMessage;
                         }
 
-                        excutiveMessage += messageBodyTail;
+                        executiveMessage += EndMessageBody;
 
-                        foreach(var executive in MonitorEmailAddresses)
+                        var emailSubject = string.Format(EmailSubject, checkDate);
+                        foreach (var executive in MonitorEmailAddresses)
                         {
-                            if (sendEmail(executive, EmailSubject, excutiveMessage))
-                            {
-                                foreach (var job in executiveNewJobNotifications)
-                                {
-                                    if (!notifiedlist.Contains(job.JobNumber))
-                                    {
-                                        notifiedlist.Add(job.JobNumber);
-                                    }
-                                }
-                            }
+                            sendEmail(executive, emailSubject + " - Executive", executiveMessage);
                         }
                     }
-                    */
                 }
                 catch (Exception x)
                 {
@@ -372,11 +337,6 @@ namespace JUST.JobPerformanceNotifier
                 return false;
             }
 
-            log.Info("  [sendEmail] Sending Email to: " + toEmailAddress);
-            log.Info("  [sendEmail] EmailSubject: " + subject);
-            log.Info("  [sendEmail] EmailMessage: " + emailBody);
-
-            return result;
             try
             {
                 using (MailMessage mail = new MailMessage())
@@ -405,9 +365,9 @@ namespace JUST.JobPerformanceNotifier
             return result;
         }
 
-        private static long GetTotalActualHoursForJob(OdbcConnection cn, string jobNumber)
+        private static decimal GetTotalActualHoursForJob(OdbcConnection cn, string jobNumber)
         {
-            var jobHours = 0;
+            var jobHours = 0m;
             var jobQuery = "Select sum(jcdetail.hours) from jcdetail where jobnum = '{0}'";
             var buyerCmd = new OdbcCommand(string.Format(jobQuery, jobNumber), cn);
 
@@ -415,7 +375,7 @@ namespace JUST.JobPerformanceNotifier
 
             if (jobReader.Read())
             {
-                jobHours = jobReader.GetInt32(0);
+                jobHours = jobReader.GetDecimal(0);
             }
 
             jobReader.Close();
@@ -423,9 +383,9 @@ namespace JUST.JobPerformanceNotifier
             return jobHours;
         }
 
-        private static long GetTotalEstimatedHoursForJob(OdbcConnection cn, string jobNumber)
+        private static decimal GetTotalEstimatedHoursForJob(OdbcConnection cn, string jobNumber)
         {
-            var estimatedJobHours = 0;
+            var estimatedJobHours = 0m;
             var jobQuery = "Select sum(jccat.budget1_hours) from jccat where jobnum = '{0}'";
             var buyerCmd = new OdbcCommand(string.Format(jobQuery, jobNumber), cn);
 
@@ -441,7 +401,7 @@ namespace JUST.JobPerformanceNotifier
             return estimatedJobHours;
         }
 
-        private static string GetHoursEnteredDuringPayPeriod(OdbcConnection cn, string jobNumber, DateTime checkDate, long totalActualHours, long totalEstimatedHours)
+        private static string GetHoursEnteredDuringPayPeriod(OdbcConnection cn, string jobNumber, DateTime checkDate, decimal totalActualHours, decimal totalEstimatedHours)
         {
             long offset = 0;
 
@@ -473,8 +433,6 @@ namespace JUST.JobPerformanceNotifier
 
             OdbcDataReader hoursReader = buyerCmd.ExecuteReader();
 
-            string message = string.Format(MessageBodyFormat, jobNumber);
-
             try
             {
                 var whoColumn = hoursReader.GetOrdinal("who");
@@ -504,19 +462,27 @@ namespace JUST.JobPerformanceNotifier
                 group h by new { h.Who, h.Type } into g
                 select new { g.Key.Who, g.Key.Type, TotalHours = g.Sum(h => h.Hours) };
 
-            foreach(var x in employeeSummary)
+            var message = string.Empty;
+
+            foreach (var x in employeeSummary)
             {
-                message += String.Format(MessageBodyTableItem, x.Who, x.TotalHours, FormatHoursType(x.Type), string.Empty, string.Empty, string.Empty);
+                message += String.Format(MessageBodyTableItem, x.Who, x.TotalHours, FormatHoursType(x.Type));
             }
 
             var totalJobHours = employeeSummary.Sum(h => h.TotalHours);
 
             if (totalJobHours > 0)
             {
-                message += String.Format(MessageBodyTableItem, "Total", string.Empty, totalJobHours.ToString(), string.Empty, totalActualHours.ToString(), totalEstimatedHours.ToString(), string.Empty);
+                message += String.Format(MessageBodyTableItem, "<strong>Weekly Total</strong>", totalJobHours.ToString(), string.Empty);
             }
 
-            message += string.Format(MessageBodyTail, totalActualHours.ToString(), totalEstimatedHours.ToString(), (totalEstimatedHours - totalActualHours).ToString() );
+            var remainingHoursForJob = totalEstimatedHours - totalActualHours;
+            var formattedRemainingHours = remainingHoursForJob.ToString();
+            if (remainingHoursForJob < 0)
+            {
+                formattedRemainingHours = string.Format(@"<strong><font color=""red"">{0}</font></strong>", remainingHoursForJob);
+            }
+            message += string.Format(MessageBodyTail, totalActualHours.ToString(), totalEstimatedHours.ToString(), formattedRemainingHours );
             hoursReader.Close();
 
             return message;
