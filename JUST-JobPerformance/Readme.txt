@@ -89,3 +89,4 @@ History
 -------
 1.00 - Initial go-live delivery.
 1.0.1.0 - Update with holiday date logic
+1.0.1.1 - Added Veterans Day Observed
