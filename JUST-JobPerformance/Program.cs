@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Globalization;
 using System.Collections;
 using System.Collections.Generic;
 using System.Configuration;
@@ -8,6 +9,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Mail;
 using System.Text;
+using JUST.Extensions;
 using JUST.JobPerformanceNotifier.Classes;
 
 namespace JUST.JobPerformanceNotifier
@@ -159,14 +161,49 @@ namespace JUST.JobPerformanceNotifier
         {
             try
             {
+                var runDate = DateTime.Today;
+                var checkStartDate = string.Empty;
+                var checkEndDate = string.Empty;
+
+                if (runDate.IsMonday())
+                {
+                    if (runDate.IsFederalHoliday())
+                    {
+                        //Today, Monday, is a Federal Holiday, payroll won't get entered until Tuesday
+                        log.Info("Running on Monday: is a Federal Holiday, closing.");
+                        return;
+                    }
+                    else
+                    {
+                        // It's just a regular Monday, payroll on Wednesday
+                        checkStartDate = String.Format("{0:yyyy-MM-dd}", runDate.AddDays(2));
+                        checkEndDate = String.Format("{0:yyyy-MM-dd}", runDate.AddDays(4));
+                        log.Info("Running on Monday, checking payroll for Wednesday.");
+                    }
+                }
+                else 
+                {
+                    if (runDate.AddDays(-1).IsMonday() && runDate.AddDays(-1).IsFederalHoliday())
+                    {
+                        // It's a Tuesday and yesterday, Monday, was a Federal Holiday.   This was skipped above.
+                        // We want to continue looking up Wednesday payroll
+                        checkStartDate = String.Format("{0:yyyy-MM-dd}", runDate.AddDays(1));
+                        checkEndDate = String.Format("{0:yyyy-MM-dd}", runDate.AddDays(3));
+                        log.Info("Running on Tuesday.  Monday was a federal holiday, checking payroll for Wednesday.");
+                    }
+                    else
+                    {
+                        log.Info("Closing as it's either: not Monday or: Tuesday when Monday was a holiday");
+                        return;
+                    }
+                }
+
+                log.Info("checkStartDate: " + checkStartDate);
+                log.Info("checkEndDate: " + checkEndDate);
+
                 OdbcConnection cn;
                 OdbcCommand cmd;
                 var notifiedlist = new ArrayList();
-                var runDate = DateTime.Today; 
-                runDate = runDate.AddDays(runDate.DayOfWeek == DayOfWeek.Monday ? 2 : 1);
-                //runDate = new DateTime(2018, 06, 20);
-                var checkDate = String.Format("{0:yyyy-MM-dd}", runDate);
-                log.Info("checkDate: " + checkDate);
 
                 //jcjob
                 // user_1 = job description
@@ -184,7 +221,7 @@ namespace JUST.JobPerformanceNotifier
                 // user_1 = primary contact
                 // user_2 = secondary contact
 //                var JobsQuery = "select distinct prledgerjc.jobnum, customer.user_1 from prledgerjc inner join jcjob on prledgerjc.jobnum = jcjob.jobnum  inner join customer on jcjob.cusnum = customer.cusnum where checkdate = {d'" + checkDate + "'} and prledgerjc.jobnum is not null and (prledgerjc.jobnum like 'C%' or prledgerjc.jobnum like 'P%') and prledgerjc.jobnum = 'CAC18081'";
-                var JobsQuery = "select distinct prledgerjc.jobnum, jcjob.user_2 as primaryContact, jcjob.name as jobName, customer.cusnum as customerNumber, customer.name as customerName from prledgerjc inner join jcjob on prledgerjc.jobnum = jcjob.jobnum  inner join customer on jcjob.cusnum = customer.cusnum where checkdate = {d'" + checkDate + "'} and prledgerjc.jobnum is not null and (prledgerjc.jobnum like 'C%' or prledgerjc.jobnum like 'P%')";
+                var JobsQuery = "select distinct prledgerjc.jobnum, jcjob.user_2 as primaryContact, jcjob.name as jobName, customer.cusnum as customerNumber, customer.name as customerName from prledgerjc inner join jcjob on prledgerjc.jobnum = jcjob.jobnum  inner join customer on jcjob.cusnum = customer.cusnum where checkdate >= {d'" + checkStartDate + "'} and checkdate <= {d'" + checkEndDate + "'} and prledgerjc.jobnum is not null and (prledgerjc.jobnum like 'C%' or prledgerjc.jobnum like 'P%')";
 
                 OdbcConnectionStringBuilder just = new OdbcConnectionStringBuilder();
                 just.Driver = "ComputerEase";
@@ -223,7 +260,7 @@ namespace JUST.JobPerformanceNotifier
                         log.Info("    totalEstimatedHoursForJob: " + totalEstimatedHoursForJob.ToString());
 
                         var emp = GetEmployeeInformation(EmployeeEmailAddresses, primaryContact);
-                        var message = string.Format(MessageBodyFormat, jobNumber, jobName, emp.Name, customerNumber, customerName, checkDate) + x;
+                        var message = string.Format(MessageBodyFormat, jobNumber, jobName, emp.Name, customerNumber, customerName, checkStartDate) + x;
                         emp.AddMessageToNotify(message);
 
                         if ((Mode == monitor) || (Mode == debug))
@@ -246,7 +283,7 @@ namespace JUST.JobPerformanceNotifier
 
                                 r += EndMessageBody;
 
-                                var emailSubject = string.Format(EmailSubject, checkDate);
+                                var emailSubject = string.Format(EmailSubject, checkStartDate);
                                 sendEmail(emp.EmailAddress, emailSubject, r);
                             }
                         }
@@ -262,7 +299,7 @@ namespace JUST.JobPerformanceNotifier
 
                         executiveMessage += EndMessageBody;
 
-                        var emailSubject = string.Format(EmailSubject, checkDate);
+                        var emailSubject = string.Format(EmailSubject, checkStartDate);
                         foreach (var executive in MonitorEmailAddresses)
                         {
                             sendEmail(executive, emailSubject + " - Executive", executiveMessage);
@@ -466,7 +503,7 @@ namespace JUST.JobPerformanceNotifier
 
             foreach (var x in employeeSummary)
             {
-                message += String.Format(MessageBodyTableItem, x.Who, x.TotalHours, FormatHoursType(x.Type));
+                message += String.Format(MessageBodyTableItem, x.Who, x.TotalHours.ToString(), FormatHoursType(x.Type));
             }
 
             var totalJobHours = employeeSummary.Sum(h => h.TotalHours);
